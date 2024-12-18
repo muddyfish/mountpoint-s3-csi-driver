@@ -12,14 +12,13 @@ on:
 
 concurrency: e2e-cluster
 env:
-  COMMIT_ID: ${{ inputs.ref }}
   IMAGE_NAME: "s3-csi-driver"
   BENCHMARK_ARTIFACTS_FOLDER: ".github/artifacts"
   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
   KOPS_STATE_FILE: "s3://${{ vars.KOPS_STATE_FILE }}"
   BENCHMARK_BUCKET: "s3://${{ vars.BENCHMARK_BUCKET }}"
-  TAG_UNTESTED: "untested_${{ env.COMMIT_ID }}"
-  TAG_PASSED: "test_passed_${{ env.COMMIT_ID }}"
+  TAG_UNTESTED: "untested_${{ inputs.ref }}"
+  TAG_PASSED: "test_passed_${{ inputs.ref }}"
 jobs:
   build:
     runs-on: ubuntu-latest
