@@ -25,20 +25,6 @@ jobs:
       id-token: write
       contents: write
     steps:
-
-      - name: Checkout actions-oidc-debugger
-        uses: actions/checkout@v3
-        with:
-          repository: github/actions-oidc-debugger
-          ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
-          path: ./.github/actions/actions-oidc-debugger
-      - name: Debug OIDC Claims
-        uses: ./.github/actions/actions-oidc-debugger
-        with:
-          audience: "sts.amazonaws.com"
-
-
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -55,6 +41,8 @@ jobs:
       - name: Login to Amazon ECR (trusted)
         id: login-ecr-trusted
         uses: aws-actions/amazon-ecr-login@v1
+        with:
+          mask-password: true
 
       - name: Configure AWS Credentials from Prod account
         uses: aws-actions/configure-aws-credentials@v4
@@ -64,6 +52,8 @@ jobs:
       - name: Login to Amazon ECR prod
         id: login-ecr-prod
         uses: aws-actions/amazon-ecr-login@v1
+        with:
+          mask-password: true
 
       - name: Configure AWS Credentials from Prod account (for ECR public)
         if: ${{ env.PUBLIC_REGISTRY != '' }}
@@ -77,12 +67,15 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v1
         with:
           registry-type: public
+          mask-password: true
 
       - name: Promote image
+        env:
+          SOURCE_REGISTRY: ${{ steps.login-ecr-trusted.outputs.registry }}
         run: |
-          crane copy ${steps.login-ecr-trusted.outputs.registry}/${IMAGE_NAME}:${COMMIT_ID} ${ARS_REGISTRY}:${GIT_TAG}
+          crane copy ${SOURCE_REGISTRY}/${IMAGE_NAME}:${COMMIT_ID} ${ARS_REGISTRY}:${GIT_TAG}
           if [ -n "$VAR" ]; then
-            crane copy ${steps.login-ecr-trusted.outputs.registry}/${IMAGE_NAME}:${COMMIT_ID} ${PUBLIC_REGISTRY}:${GIT_TAG}
+            crane copy ${SOURCE_REGISTRY}/${IMAGE_NAME}:${COMMIT_ID} ${PUBLIC_REGISTRY}:${GIT_TAG}
           fi
 
       - name: Create Release
