@@ -105,7 +105,6 @@ jobs:
         with:
           python-version: "3.10"
       - name: Configure AWS Credentials
-        id: login
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.IAM_ROLE }}
@@ -178,11 +177,23 @@ jobs:
           ACTION: "delete_cluster"
         run: |
           tests/e2e-kubernetes/scripts/run.sh
+  post_test:
+    needs: test
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS Credentials
+        id: login
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.IAM_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
       - name: Mark tests as passed
-        if: ${{ success() }}
         env:
           REGISTRY: "${{ steps.login.outputs.aws-account-id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
           REPOSITORY: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
         run: |
-          docker manifest create ${REPOSITORY}:${TAG_TESTED} ${REPOSITORY}:${TAG_UNTESTED}
-          docker manifest push ${REPOSITORY}:${TAG_TESTED}
+          docker manifest create ${REPOSITORY}:${TAG_PASSED} ${REPOSITORY}:${TAG_UNTESTED}
+          docker manifest push ${REPOSITORY}:${TAG_PASSED}
