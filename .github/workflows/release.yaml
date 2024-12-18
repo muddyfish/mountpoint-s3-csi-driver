@@ -10,8 +10,8 @@ on:
 # 1) private ARS source repository
 # 2) public repository
 env:
-  COMMIT_ID: ${{ github.sha }}
   GIT_TAG: ${{ github.ref_name }}
+  TAG_PASSED: "test_passed_${{ github.sha }}"
   IMAGE_NAME: "s3-csi-driver"
   PUBLIC_REGISTRY: ${{ vars.PUBLIC_REGISTRY }}
   ARS_REGISTRY: ${{ vars.ARS_REGISTRY }}
@@ -73,9 +73,9 @@ jobs:
         env:
           SOURCE_REGISTRY: ${{ steps.login-ecr-trusted.outputs.registry }}
         run: |
-          crane copy ${SOURCE_REGISTRY}/${IMAGE_NAME}:${COMMIT_ID} ${ARS_REGISTRY}:${GIT_TAG}
+          crane copy ${SOURCE_REGISTRY}/${IMAGE_NAME}:${TAG_PASSED} ${ARS_REGISTRY}:${GIT_TAG}
           if [ -n "$VAR" ]; then
-            crane copy ${SOURCE_REGISTRY}/${IMAGE_NAME}:${COMMIT_ID} ${PUBLIC_REGISTRY}:${GIT_TAG}
+            crane copy ${SOURCE_REGISTRY}/${IMAGE_NAME}:${TAG_PASSED} ${PUBLIC_REGISTRY}:${GIT_TAG}
           fi
 
       - name: Create Release

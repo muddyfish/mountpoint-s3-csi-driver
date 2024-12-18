@@ -18,6 +18,8 @@ env:
   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
   KOPS_STATE_FILE: "s3://${{ vars.KOPS_STATE_FILE }}"
   BENCHMARK_BUCKET: "s3://${{ vars.BENCHMARK_BUCKET }}"
+  TAG_UNTESTED: "untested_${{ env.COMMIT_ID }}"
+  TAG_PASSED: "test_passed_${{ env.COMMIT_ID }}"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -48,10 +50,9 @@ jobs:
       - name: Build, tag, and push docker image to Amazon ECR Private Repository
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          PLATFORM: "linux/amd64,linux/arm64"
+          TAG: ${{ env.TAG_UNTESTED }}
         run: |
-          export PLATFORM=linux/amd64,linux/arm64
-          export TAG=${{ env.COMMIT_ID }}
           make -j `nproc` all-push-skip-if-present
   test:
     needs: build
@@ -84,6 +85,13 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    env:
+      AWS_REGION: "${{ vars.AWS_REGION }}"
+      CLUSTER_TYPE: "${{ matrix.cluster-type }}"
+      ARCH: "${{ matrix.arch }}"
+      AMI_FAMILY: "${{ matrix.family }}"
+      K8S_VERSION: "${{ matrix.kubernetes-version }}"
+      TAG: "${{ env.TAG_UNTESTED }}"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -98,7 +106,8 @@ jobs:
         with:
           python-version: "3.10"
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@master
+        id: login
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.IAM_ROLE }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -107,54 +116,30 @@ jobs:
           export ACTION=install_tools
           tests/e2e-kubernetes/scripts/run.sh
       - name: Create cluster
+        env:
+          ACTION: "create_cluster"
         run: |
-          export ACTION=create_cluster
-          export AWS_REGION=${{ vars.AWS_REGION }}
-          export CLUSTER_TYPE=${{ matrix.cluster-type }}
-          export ARCH=${{ matrix.arch }}
-          export AMI_FAMILY=${{ matrix.family }}
-          export K8S_VERSION=${{ matrix.kubernetes-version }}
           tests/e2e-kubernetes/scripts/run.sh
       - name: Update kubeconfig
+        env:
+          ACTION: "update_kubeconfig"
         run: |
-          export ACTION=update_kubeconfig
-          export AWS_REGION=${{ vars.AWS_REGION }}
-          export CLUSTER_TYPE=${{ matrix.cluster-type }}
-          export ARCH=${{ matrix.arch }}
-          export AMI_FAMILY=${{ matrix.family }}
-          export K8S_VERSION=${{ matrix.kubernetes-version }}
           tests/e2e-kubernetes/scripts/run.sh
       - name: Install the driver
+        env:
+          ACTION: "install_driver"
         run: |
-          export ACTION=install_driver
-          export AWS_REGION=${{ vars.AWS_REGION }}
-          export CLUSTER_TYPE=${{ matrix.cluster-type }}
-          export IMAGE_NAME=${{ env.IMAGE_NAME }}
-          export TAG=${{ env.COMMIT_ID }}
-          export ARCH=${{ matrix.arch }}
-          export AMI_FAMILY=${{ matrix.family }}
-          export K8S_VERSION=${{ matrix.kubernetes-version }}
           tests/e2e-kubernetes/scripts/run.sh
       - name: Run E2E Tests
+        env:
+          ACTION: "run_tests"
         run: |
-          export ACTION=run_tests
-          export AWS_REGION=${{ vars.AWS_REGION }}
-          export CLUSTER_TYPE=${{ matrix.cluster-type }}
-          export TAG=${{ env.COMMIT_ID }}
-          export ARCH=${{ matrix.arch }}
-          export AMI_FAMILY=${{ matrix.family }}
-          export K8S_VERSION=${{ matrix.kubernetes-version }}
           tests/e2e-kubernetes/scripts/run.sh
       - name: Run Performance Tests
         if: (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'bench') && matrix.cluster-type == 'kops' && matrix.arch == 'x86'
+        env:
+          ACTION: "run_perf"
         run: |
-          export ACTION=run_perf
-          export AWS_REGION=${{ vars.AWS_REGION }}
-          export CLUSTER_TYPE=${{ matrix.cluster-type }}
-          export TAG=${{ env.COMMIT_ID }}
-          export ARCH=${{ matrix.arch }}
-          export AMI_FAMILY=${{ matrix.family }}
-          export K8S_VERSION=${{ matrix.kubernetes-version }}
           tests/e2e-kubernetes/scripts/run.sh
       - name: Download previous benchmark results
         if: (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'bench') && matrix.cluster-type == 'kops' && matrix.arch == 'x86'
@@ -178,31 +163,27 @@ jobs:
           aws s3 cp ${{ env.BENCHMARK_ARTIFACTS_FOLDER }} ${{ env.BENCHMARK_BUCKET }} --recursive
       - name: Post e2e cleanup
         if: always()
+        env:
+          ACTION: "e2e_cleanup"
         run: |
-          export ACTION=e2e_cleanup
-          export AWS_REGION=${{ vars.AWS_REGION }}
-          export CLUSTER_TYPE=${{ matrix.cluster-type }}
-          export ARCH=${{ matrix.arch }}
-          export AMI_FAMILY=${{ matrix.family }}
-          export K8S_VERSION=${{ matrix.kubernetes-version }}
           tests/e2e-kubernetes/scripts/run.sh
       - name: Uninstall the driver
         if: always()
+        env:
+          ACTION: "uninstall_driver"
         run: |
-          export ACTION=uninstall_driver
-          export AWS_REGION=${{ vars.AWS_REGION }}
-          export CLUSTER_TYPE=${{ matrix.cluster-type }}
-          export ARCH=${{ matrix.arch }}
-          export AMI_FAMILY=${{ matrix.family }}
-          export K8S_VERSION=${{ matrix.kubernetes-version }}
           tests/e2e-kubernetes/scripts/run.sh
       - name: Delete cluster
         if: always()
+        env:
+          ACTION: "delete_cluster"
         run: |
-          export ACTION=delete_cluster
-          export AWS_REGION=${{ vars.AWS_REGION }}
-          export CLUSTER_TYPE=${{ matrix.cluster-type }}
-          export ARCH=${{ matrix.arch }}
-          export AMI_FAMILY=${{ matrix.family }}
-          export K8S_VERSION=${{ matrix.kubernetes-version }}
           tests/e2e-kubernetes/scripts/run.sh
+      - name: Mark tests as passed
+        if: ${{ success() }}
+        env:
+          REGISTRY: "${{ steps.login.outputs.aws-account-id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          REPOSITORY: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+        run: |
+          docker manifest create ${REPOSITORY}:${TAG_TESTED} ${REPOSITORY}:${TAG_UNTESTED}
+          docker manifest push ${REPOSITORY}:${TAG_TESTED}
