@@ -193,8 +193,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
       - name: Mark tests as passed
         env:
-          REGISTRY: "${{ steps.login.outputs.aws-account-id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
-          REPOSITORY: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          REPOSITORY: "${{ steps.login.outputs.aws-account-id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.IMAGE_NAME }}"
         run: |
           docker manifest create ${REPOSITORY}:${TAG_PASSED} ${REPOSITORY}:${TAG_UNTESTED}
           docker manifest push ${REPOSITORY}:${TAG_PASSED}
