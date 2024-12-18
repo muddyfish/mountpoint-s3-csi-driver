@@ -185,6 +185,8 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
       - name: Configure AWS Credentials
         id: login
         uses: aws-actions/configure-aws-credentials@v4
@@ -198,5 +200,4 @@ jobs:
         env:
           REPOSITORY: "${{ steps.login.outputs.aws-account-id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.IMAGE_NAME }}"
         run: |
-          docker manifest create ${REPOSITORY}:${TAG_PASSED} ${REPOSITORY}:${TAG_UNTESTED}
-          docker manifest push ${REPOSITORY}:${TAG_PASSED}
+          docker buildx imagetools create --tag ${REPOSITORY}:${TAG_PASSED} ${REPOSITORY}:${TAG_UNTESTED}
