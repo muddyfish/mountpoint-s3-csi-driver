@@ -2,6 +2,8 @@
 
 set -euox pipefail
 
+source "${BASE_DIR}"/delete_cluster_helpers.sh
+
 OS_ARCH=$(go env GOOS)-amd64
 
 function kops_install() {
@@ -82,8 +84,29 @@ function kops_delete_cluster() {
   BIN=${1}
   CLUSTER_NAME=${2}
   KOPS_STATE_FILE=${3}
-  echo "Deleting cluster ${CLUSTER_NAME}"
-  ${BIN} delete cluster --name "${CLUSTER_NAME}" --state "${KOPS_STATE_FILE}" --yes
+  if kops_cluster_exists "${CLUSTER_NAME}" "${BIN}" "${KOPS_STATE_FILE}"; then
+    echo "Deleting cluster ${CLUSTER_NAME}"
+    DUMPED_STATE=$(${BIN} toolbox dump --name "${CLUSTER_NAME}" --state "${KOPS_STATE_FILE}" -v 1000 -o json)
+
+    # Delete delete-auto-scaling-group first
+    AUTOSCALING_GROUP_NAME=$(jq -r '.resources[] | select(.type=="instance") | .raw.Tags[] | select(.Key=="aws:autoscaling:groupName") | .Value | select(startswith("control-plane"))' <<< "$DUMPED_STATE")
+    if [ -n "$AUTOSCALING_GROUP_NAME" ]; then
+      aws autoscaling delete-auto-scaling-group --auto-scaling-group-name $AUTOSCALING_GROUP_NAME --force-delete --region "${REGION}"
+    fi
+    LOAD_BALANCER_ARN=$(jq -r '.resources[] | select(.type=="load-balancer") | .id | select(contains(":loadbalancer/"))' <<< "$DUMPED_STATE")
+    if [ -n "$LOAD_BALANCER_ARN" ]; then
+      aws elbv2 delete-load-balancer --region "$REGION" --load-balancer-arn "$LOAD_BALANCER_ARN"
+    fi
+
+    VPC_ID=$(jq -r '.vpc.id' <<< "$DUMPED_STATE" || true)
+    if [ -n "$VPC_ID" ]; then
+      delete_vpc_endpoint "$VPC_ID" "$REGION"
+      delete_security_groups "$VPC_ID" "$REGION"
+    fi
+    ${BIN} delete cluster --name "${CLUSTER_NAME}" --state "${KOPS_STATE_FILE}" --yes
+  else
+    echo "Not deleting cluster ${CLUSTER_NAME} as does not exist"
+  fi
 }
 
 # TODO switch this to python, work exclusively with yaml, use kops toolbox
