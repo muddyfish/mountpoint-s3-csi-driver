@@ -9,6 +9,10 @@ on:
       ref:
         required: true
         type: string
+      registry:
+        required: false
+        type: string
+        default: "602401143452.dkr.ecr.us-east-1.amazonaws.com"
 
 permissions:
   id-token: write
@@ -16,6 +20,7 @@ permissions:
 
 env:
   REGION: ${{ vars.AWS_REGION }}
+  REGISTRY: ${{ inputs.registry }}
 
 jobs:
   verify-sidecar-images:
@@ -27,6 +32,10 @@ jobs:
       matrix:
         helm-args:
           - ""
+          - >-
+            --set isEKSAddon=yes
+            --set sidecars.livenessProbe.image.containerRegistry=${{ inputs.registry }}
+            --set sidecars.nodeDriverRegistrar.image.containerRegistry=${{ inputs.registry }}
 
     steps:
     - name: Checkout
@@ -40,8 +49,9 @@ jobs:
       with:
         role-to-assume: ${{ vars.IAM_ROLE }}
         aws-region: ${{ vars.AWS_REGION }}
-    - name: Login to ECR Public
+    - name: Login to ECR repo + ECR Public
       run: |
+        make login_registry
         aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
 
     - name: Verify sidecar images
